@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-paper: #f6f4ef;
+  --bg-card: #fdfcfa;
+  --ink-primary: #18181b;
+  --ink-muted: #57534e;
+  --border-stone: #e4e0d8;
+  --font-editorial: "Newsreader", Georgia, Cambria, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  background-color: var(--bg-paper);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+.font-editorial {
+  font-family: var(--font-editorial);
+  letter-spacing: -0.015em;
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbar fine et discrète */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(120, 113, 108, 0.25);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 113, 108, 0.5);
+}
+
+/* Verre dépoli ultra-moderne */
+.glass-panel {
+  background: rgba(250, 248, 244, 0.88);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 20px 50px -10px rgba(28, 25, 23, 0.12), 0 0 0 1px rgba(28, 25, 23, 0.05);
+}
+
+.dark-glass-panel {
+  background: rgba(28, 25, 23, 0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.35);
+}
+
+/* Animations d'onde radar et pulsation */
+@keyframes radar-ripple {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes beacon-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes warm-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 16px rgba(249, 115, 22, 0.85));
+  }
+}
+
+.animate-radar {
+  animation: radar-ripple 2.2s cubic-bezier(0.1, 0.2, 0.3, 1) infinite;
+}
+
+.animate-beacon {
+  animation: beacon-float 2.8s ease-in-out infinite;
+}
+
+.animate-warm-glow {
+  animation: warm-glow 2.4s ease-in-out infinite;
+}
+
+/* Affinage de l'attribution MapLibre pour un rendu éditorial discret */
+.maplibregl-ctrl-attrib {
+  background-color: rgba(250, 248, 245, 0.78) !important;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(28, 25, 23, 0.08);
+  border-radius: 9999px !important;
+  padding: 2px 10px !important;
+  font-size: 10px !important;
+  color: #57534e !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+.maplibregl-ctrl-attrib a {
+  color: #44403c !important;
+}
