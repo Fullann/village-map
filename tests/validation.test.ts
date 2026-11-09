@@ -83,6 +83,15 @@ describe("Validation des Schémas de Formulaires (Zod)", () => {
         photo_url: "not-a-valid-url-or-path",
       });
       assert.equal(invalidUrl.success, false);
+
+      const maliciousUrl = HalloweenSchema.safeParse({
+        is_distributing: true,
+        start_time: "18:00",
+        end_time: "20:30",
+        is_self_service: false,
+        photo_url: "javascript:alert(1)",
+      });
+      assert.equal(maliciousUrl.success, false);
     });
   });
 

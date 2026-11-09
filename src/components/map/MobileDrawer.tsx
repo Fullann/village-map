@@ -20,6 +20,7 @@ import {
   Gift,
   Sparkles,
   Lock,
+  Share2,
 } from "lucide-react";
 import {
   SEASON_THEMES,
@@ -187,8 +188,32 @@ export default function MobileDrawer({
 
   const openPedestrianRoute = (ev: VillageMapEvent) => {
     triggerHaptic(15);
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${ev.lat},${ev.lng}&travelmode=walking`;
+    const isApple =
+      typeof navigator !== "undefined" &&
+      /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const url = isApple
+      ? `https://maps.apple.com/?daddr=${ev.lat},${ev.lng}&dirflg=w`
+      : `https://www.google.com/maps/dir/?api=1&destination=${ev.lat},${ev.lng}&travelmode=walking`;
     window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const shareAddress = async (ev: VillageMapEvent) => {
+    triggerHaptic(12);
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: `${ev.street_name} ${ev.house_number} · Village en Fête`,
+          text: `Retrouve cette animation festive au ${ev.street_name} ${ev.house_number} (1302 Vufflens-la-Ville) !`,
+          url: window.location.href,
+        });
+      } catch {
+        /* annulé par l'utilisateur */
+      }
+    } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+      await navigator.clipboard.writeText(
+        `${ev.street_name} ${ev.house_number}, 1302 Vufflens-la-Ville · ${window.location.href}`
+      );
+    }
   };
 
   // Tracker de progression dynamique avec animation fluide
@@ -533,15 +558,24 @@ export default function MobileDrawer({
           </motion.button>
         </div>
 
-        <div className="pl-2">
+        <div className="grid grid-cols-2 gap-2 pl-2">
           <a
             href={`/api/calendar/export?addressId=${ev.address_id}`}
             download
-            className="w-full min-h-[38px] flex items-center justify-center gap-2 rounded-xl bg-white hover:bg-stone-50 text-stone-800 font-semibold text-xs px-3 border border-stone-200 shadow-sm transition"
+            className="min-h-[38px] flex items-center justify-center gap-1.5 rounded-xl bg-white hover:bg-stone-50 text-stone-800 font-semibold text-xs px-2.5 border border-stone-200 shadow-sm transition truncate"
           >
-            <Calendar className="w-3.5 h-3.5 text-stone-600" />
-            <span>Ajouter à mon agenda (.ics)</span>
+            <Calendar className="w-3.5 h-3.5 text-stone-600 shrink-0" />
+            <span className="truncate">Agenda (.ics)</span>
           </a>
+
+          <button
+            type="button"
+            onClick={() => shareAddress(ev)}
+            className="min-h-[38px] flex items-center justify-center gap-1.5 rounded-xl bg-white hover:bg-stone-50 text-stone-800 font-semibold text-xs px-2.5 border border-stone-200 shadow-sm transition truncate"
+          >
+            <Share2 className="w-3.5 h-3.5 text-stone-600 shrink-0" />
+            <span className="truncate">Partager</span>
+          </button>
         </div>
       </motion.div>
     );
@@ -801,7 +835,7 @@ export default function MobileDrawer({
         onDragEnd={handleDragEnd}
         animate={{ height: SNAP_HEIGHTS[snap] }}
         transition={springBounceTransition}
-        className="md:hidden fixed bottom-0 left-0 right-0 z-30 rounded-t-3xl border-t border-stone-900/10 bg-[#FAF8F4]/95 backdrop-blur-2xl px-4 pt-2.5 pb-5 text-stone-900 shadow-[0_-16px_40px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 rounded-t-3xl border-t border-stone-900/10 bg-[#FAF8F4]/95 backdrop-blur-2xl px-4 pt-2.5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-stone-900 shadow-[0_-16px_40px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden"
       >
         <button
           type="button"

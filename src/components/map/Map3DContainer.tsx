@@ -808,6 +808,37 @@ export default function Map3DContainer({
     );
   }, [safeCenter]);
 
+  // Raccourcis clavier ergonomiques Desktop (Échap pour fermer, C pour recentrer, N pour nuit)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === "Escape") {
+        setSelectedEvent(null);
+        setHoveredAddressId(null);
+      } else if (e.key === "c" || e.key === "C") {
+        resetCameraToVufflens();
+      } else if (e.key === "n" || e.key === "N") {
+        toggleNightAmbiance();
+      } else if (e.key === "+" || e.key === "=") {
+        mapRef.current?.zoomIn();
+      } else if (e.key === "-" || e.key === "_") {
+        mapRef.current?.zoomOut();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [safeCenter]);
+
   return (
     <div
       className={`relative w-full h-[100dvh] overflow-hidden select-none transition-colors duration-700 ${

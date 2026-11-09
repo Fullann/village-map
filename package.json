@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "test": "node --import tsx --test 'tests/**/*.test.ts'",
+    "test": "node --import tsx --test",
     "db:migrate": "node --env-file-if-exists=.env.local --import tsx scripts/migrate.ts",
     "fetch:vufflens": "node --env-file-if-exists=.env.local --import tsx scripts/fetch-vufflens-3d.ts",
     "import:addresses": "node --env-file-if-exists=.env.local --import tsx scripts/import-addresses.ts"
