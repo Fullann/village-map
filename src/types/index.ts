@@ -43,3 +43,18 @@ export interface VillageMapEvent {
   is_accessible_step_free?: boolean | null;
   photo_url?: string | null;
 }
+
+export interface CommunalAlert {
+  id: string;
+  level: "info" | "warning" | "urgent";
+  title: string;
+  message: string;
+  created_at?: string;
+}
+
+export interface MyHalloweenStatus {
+  isRegistered: boolean;
+  isDistributing: boolean;
+  outOfCandy: boolean;
+  addressLabel: string;
+}

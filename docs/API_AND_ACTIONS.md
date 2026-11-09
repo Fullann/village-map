@@ -48,6 +48,8 @@ Les Server Actions sont localisées dans `src/app/actions/`. Elles s'exécutent 
 | `sendAdventRemindersAction()` | Parcourt les fenêtres prévues pour le lendemain (J-1) et envoie automatiquement les courriels de rappel aux habitants organisateurs. | — |
 | `approveVerification(formData)` | Valide manuellement l'adresse d'un résident en attente de modération. | `user_id: string` |
 | `revokeUser(formData)` | Révoque l'accès ou la vérification d'un profil suspect. | `user_id: string` |
+| `publishCommunalAlert(formData)` | Diffuse instantanément un message flash communal en direct (SSE) sur tous les téléphones et ordinateurs connectés. | `level: info/warning/urgent`, `title`, `message` |
+| `dismissCommunalAlert(formData)` | Retire immédiatement l'alerte active courante de tous les écrans connectés. | `alert_id: string` |
 
 ---
 

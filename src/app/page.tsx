@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 import Map3DContainer from "@/components/map/Map3DContainer";
-import type { SeasonMode, VillageMapEvent } from "@/types";
+import type { SeasonMode, VillageMapEvent, CommunalAlert, MyHalloweenStatus } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,8 @@ export default async function HomePage() {
   ];
   let mapStyle = "https://vectortiles.geo.admin.ch/styles/ch.swisstopo.basemap.vt/style.json";
   let events: VillageMapEvent[] = [];
+  let initialAlert: CommunalAlert | null = null;
+  let myHalloweenStatus: MyHalloweenStatus | null = null;
 
   try {
     const stateRows = await query<PublicVillageStateRow>(
@@ -46,6 +49,44 @@ export default async function HomePage() {
       mapStyle = st.map_style_url;
     }
     events = await query<VillageMapEvent>(`SELECT * FROM public.public_map_events`);
+
+    // Récupère l'alerte communale active courante
+    const alertRows = await query<CommunalAlert>(
+      `SELECT id, level, title, message, created_at::TEXT
+       FROM public.village_alerts
+       WHERE is_active = true
+       ORDER BY created_at DESC
+       LIMIT 1`
+    );
+    if (alertRows[0]) {
+      initialAlert = alertRows[0];
+    }
+
+    // Récupère le statut de l'utilisateur connecté pour Halloween (bouton d'action rapide direct sur la carte)
+    const me = await getSessionUser();
+    if (me && me.address_id) {
+      const regRows = await query<{
+        is_distributing: boolean;
+        out_of_candy: boolean;
+        street_name: string;
+        house_number: string;
+      }>(
+        `SELECT h.is_distributing, h.out_of_candy, a.street_name, a.house_number
+         FROM public.halloween_registrations h
+         JOIN public.addresses a ON a.id = h.address_id
+         WHERE h.user_id = $1 AND h.season_year = EXTRACT(YEAR FROM CURRENT_DATE)
+         LIMIT 1`,
+        [me.id]
+      );
+      if (regRows[0]) {
+        myHalloweenStatus = {
+          isRegistered: true,
+          isDistributing: Boolean(regRows[0].is_distributing),
+          outOfCandy: Boolean(regRows[0].out_of_candy),
+          addressLabel: `${regRows[0].street_name} ${regRows[0].house_number}`,
+        };
+      }
+    }
   } catch {
     // Valeurs par défaut si base non initialisée
   }
@@ -60,6 +101,8 @@ export default async function HomePage() {
         villageCenter={villageCenter}
         villageBounds={villageBounds}
         mapStyle={mapStyle}
+        initialAlert={initialAlert}
+        myHalloweenStatus={myHalloweenStatus}
       />
     </main>
   );

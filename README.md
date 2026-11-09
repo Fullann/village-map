@@ -17,7 +17,7 @@
 
 - 🎃 **Événement d'Halloween** :
   - Inscription des maisons distribuant des friandises avec créneau horaire, mode libre-service et instructions.
-  - Bouton temps réel **« Plus de bonbons »** avec diffusion instantanée par **Server-Sent Events (SSE)** pour griser les adresses dévalisées sans aucun rechargement sur les téléphones des enfants.
+  - **Bouton d'action rapide en 1 clic direct sur la carte** : L'habitant connecté peut basculer d'un simple tap son état « Plus de bonbons », diffusé instantanément par **Server-Sent Events (SSE)** pour griser sa maison et notifier tous les enfants et promeneurs en temps réel sans rechargement.
   - Filtre d'accessibilité PMR / poussettes sans marches (`is_accessible_step_free`).
   - Galerie photo des façades hantées compatible stockage local ou **compatible S3 (Cloudflare R2, MinIO, Scaleway)**.
 
@@ -27,6 +27,10 @@
   - Libellé d'animation personnalisé (`activity_label`).
   - **Dévoilement progressif** : Le serveur masque les détails et surprises des jours futurs jusqu'à leur arrivée le jour J.
   - Générateur d'affiche communale prête pour impression A4/A3 (`/admin/print-advent`).
+
+- 📢 **Messages d'Alerte & Flash Communal en Direct (Temps Réel)** :
+  - La mairie et le comité d'animation peuvent diffuser à tout instant un flash info ou d'urgence (météo, repli sous préau, consignes).
+  - Affichage instantané d'une bannière dynamique sur tous les téléphones et ordinateurs connectés en temps réel avec notification et retour haptique.
 
 - 🔒 **Sécurité & Vie Privée en Profondeur** :
   - **Sas Villageois (*Village Access Gate*)** : Code d'accès municipal à 8 caractères avec vérification temporelle constante (`timingSafeEqual`) pour bloquer le scraping et protéger les données privées des habitants.

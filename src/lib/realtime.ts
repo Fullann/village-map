@@ -15,12 +15,26 @@ export interface LiveSeasonChangeEvent {
   timestamp: string;
 }
 
+export interface LiveCommunalAlertEvent {
+  type: "communal_alert";
+  id?: string;
+  level: "info" | "warning" | "urgent";
+  title: string;
+  message: string;
+  active: boolean;
+  timestamp: string;
+}
+
 export interface LivePingEvent {
   type: "ping";
   timestamp: string;
 }
 
-export type LiveVillageEvent = LiveCandyUpdateEvent | LiveSeasonChangeEvent | LivePingEvent;
+export type LiveVillageEvent =
+  | LiveCandyUpdateEvent
+  | LiveSeasonChangeEvent
+  | LiveCommunalAlertEvent
+  | LivePingEvent;
 
 declare global {
   // eslint-disable-next-line no-var

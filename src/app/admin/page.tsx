@@ -11,9 +11,11 @@ import {
   regenerateVillageCode,
   updateMapSettings,
   sendAdventRemindersAction,
+  publishCommunalAlert,
+  dismissCommunalAlert,
 } from "@/app/actions/admin";
 import { Button } from "@/components/ui/button";
-import type { SeasonMode } from "@/types";
+import type { SeasonMode, CommunalAlert } from "@/types";
 
 interface VillageStateRow {
   current_season: SeasonMode;
@@ -191,6 +193,26 @@ export default async function AdminPage({
 
   const { newcode, map_saved, map_error, reminded } = await searchParams;
 
+  const alertRows = await query<CommunalAlert>(
+    `SELECT id, level, title, message, created_at::TEXT
+     FROM public.village_alerts
+     WHERE is_active = true
+     ORDER BY created_at DESC
+     LIMIT 1`
+  );
+  const activeAlert = alertRows[0] ?? null;
+
+  async function broadcastAlert(fd: FormData) {
+    "use server";
+    await publishCommunalAlert(fd);
+    redirect("/admin");
+  }
+  async function removeAlert(fd: FormData) {
+    "use server";
+    await dismissCommunalAlert(fd);
+    redirect("/admin");
+  }
+
   async function regen() {
     "use server";
     const r = await regenerateVillageCode();
@@ -268,6 +290,113 @@ export default async function AdminPage({
 
       {me.role === "admin" && (
         <>
+          {/* 📢 FLASH COMMUNAL & MESSAGES D'ALERTE EN DIRECT (SSE) */}
+          <section className="rounded-2xl border border-stone-300/80 bg-white p-6 space-y-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 pb-3">
+              <div>
+                <h2 className="font-editorial text-lg font-bold text-stone-900 flex items-center gap-2">
+                  <span>📢 Message d&apos;alerte & Flash communal en direct</span>
+                  <span className="rounded-full bg-red-100 text-red-800 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                    Temps réel SSE
+                  </span>
+                </h2>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  Diffuse instantanément une notification visuelle sur tous les téléphones et ordinateurs connectés en direct.
+                </p>
+              </div>
+
+              {activeAlert && (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 border border-amber-300 px-3 py-1 text-xs font-semibold text-amber-900">
+                    <span className="h-2 w-2 rounded-full bg-amber-600 animate-ping" />
+                    <span>Alerte active à l&apos;écran</span>
+                  </span>
+                  <form action={removeAlert}>
+                    <input type="hidden" name="alert_id" value={activeAlert.id} />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-red-300 bg-red-50 hover:bg-red-100 px-3 py-1 text-xs font-semibold text-red-800 transition"
+                    >
+                      Retirer l&apos;alerte
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+
+            {activeAlert && (
+              <div
+                className={`rounded-xl border p-4 text-xs space-y-1 ${
+                  activeAlert.level === "urgent"
+                    ? "border-red-300 bg-red-50 text-red-900"
+                    : activeAlert.level === "warning"
+                    ? "border-amber-300 bg-amber-50 text-amber-900"
+                    : "border-sky-300 bg-sky-50 text-sky-900"
+                }`}
+              >
+                <div className="font-bold flex items-center gap-2">
+                  <span className="uppercase text-[10px] px-1.5 py-0.5 rounded bg-white font-mono">
+                    {activeAlert.level}
+                  </span>
+                  <span>{activeAlert.title}</span>
+                </div>
+                <p className="font-medium text-stone-800">{activeAlert.message}</p>
+              </div>
+            )}
+
+            <form action={broadcastAlert} className="space-y-4 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1">
+                    Niveau d&apos;importance
+                  </label>
+                  <select
+                    name="level"
+                    defaultValue="warning"
+                    className="w-full h-9 rounded-md border border-stone-300 bg-white px-2.5 text-xs text-stone-900 focus:border-stone-900 focus:outline-none"
+                  >
+                    <option value="info">🔵 Information (Informatif)</option>
+                    <option value="warning">🟠 Avertissement (Météo / Programme)</option>
+                    <option value="urgent">🔴 Urgent (Sécurité / Report)</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-stone-700 mb-1">
+                    Titre du flash communal
+                  </label>
+                  <input
+                    name="title"
+                    type="text"
+                    required
+                    placeholder="Ex: Fortes pluies à 19h / Verrée sous le préau"
+                    className="w-full h-9 rounded-md border border-stone-300 bg-white px-3 text-xs text-stone-900 placeholder:text-stone-400 focus:border-stone-900 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  Message détaillé (visible immédiatement sur tous les écrans)
+                </label>
+                <textarea
+                  name="message"
+                  required
+                  rows={2}
+                  maxLength={280}
+                  placeholder="Ex: En raison des averses orageuses, la tournée d'Halloween se termine à 20h. Les boissons chaudes sont servies au chaud dans la Grande Salle !"
+                  className="w-full rounded-md border border-stone-300 bg-white p-3 text-xs text-stone-900 placeholder:text-stone-400 focus:border-stone-900 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <Button type="submit" className="bg-stone-900 text-white hover:bg-stone-800 text-xs font-semibold">
+                  Diffuser le message à tous les habitants en direct →
+                </Button>
+              </div>
+            </form>
+          </section>
+
           {/* STATISTIQUES & FRÉQUENTATION EN DIRECT */}
           <section className="rounded-2xl border border-stone-300/80 bg-white p-6 space-y-6 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-stone-200/80 pb-4">

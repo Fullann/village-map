@@ -9,6 +9,7 @@ import {
   sendAdventEveReminderEmail,
   sendAdventPublishedEmail,
 } from "@/lib/mail";
+import { broadcastLiveEvent } from "@/lib/realtime";
 
 export async function setSeason(formData: FormData) {
   const user = await getSessionUser();
@@ -252,6 +253,93 @@ export async function updateMapSettings(formData: FormData) {
         user.id,
       ]
     );
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/");
+  return { success: true };
+}
+
+/**
+ * Diffuse un message d'alerte / flash communal instantané à tous les habitants connectés (SSE)
+ */
+export async function publishCommunalAlert(formData: FormData) {
+  const user = await getSessionUser();
+  if (!user || (user.role !== "admin" && user.role !== "moderator")) {
+    return { success: false, error: "Accès refusé" };
+  }
+
+  const level = (formData.get("level") as string) || "warning";
+  const title = (formData.get("title") as string)?.trim() || "Message de la Commune";
+  const message = (formData.get("message") as string)?.trim();
+
+  if (!message || message.length < 3) {
+    return { success: false, error: "Le message d'alerte ne peut pas être vide." };
+  }
+
+  const safeLevel = ["info", "warning", "urgent"].includes(level)
+    ? (level as "info" | "warning" | "urgent")
+    : "warning";
+
+  let createdAlert: { id: string; title: string; message: string; level: "info" | "warning" | "urgent" } | null = null;
+
+  await withRlsContext(user.id, async (client) => {
+    await client.query(`UPDATE public.village_alerts SET is_active = false WHERE is_active = true`);
+
+    const res = await client.query<{ id: string; title: string; message: string; level: "info" | "warning" | "urgent" }>(
+      `INSERT INTO public.village_alerts (level, title, message, is_active, created_by)
+       VALUES ($1, $2, $3, true, $4)
+       RETURNING id, title, message, level`,
+      [safeLevel, title, message, user.id]
+    );
+    createdAlert = res.rows[0] ?? null;
+  });
+
+  if (createdAlert) {
+    const alertData = createdAlert as { id: string; title: string; message: string; level: "info" | "warning" | "urgent" };
+    broadcastLiveEvent({
+      type: "communal_alert",
+      id: alertData.id,
+      level: alertData.level,
+      title: alertData.title,
+      message: alertData.message,
+      active: true,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/");
+  return { success: true };
+}
+
+/**
+ * Retire immédiatement l'alerte active courante
+ */
+export async function dismissCommunalAlert(formData: FormData) {
+  const user = await getSessionUser();
+  if (!user || (user.role !== "admin" && user.role !== "moderator")) {
+    return { success: false, error: "Accès refusé" };
+  }
+
+  const alertId = formData.get("alert_id") as string;
+
+  await withRlsContext(user.id, async (client) => {
+    if (alertId) {
+      await client.query(`UPDATE public.village_alerts SET is_active = false WHERE id = $1`, [alertId]);
+    } else {
+      await client.query(`UPDATE public.village_alerts SET is_active = false WHERE is_active = true`);
+    }
+  });
+
+  broadcastLiveEvent({
+    type: "communal_alert",
+    id: alertId || undefined,
+    level: "info",
+    title: "",
+    message: "",
+    active: false,
+    timestamp: new Date().toISOString(),
   });
 
   revalidatePath("/admin");

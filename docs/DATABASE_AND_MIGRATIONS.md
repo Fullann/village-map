@@ -131,6 +131,10 @@ Active `ROW LEVEL SECURITY` sur chaque table sensible :
 - Création de la table **`analytics_visits`** : Journalisation discrète et respectueuse de la vie privée (`event_type`: `page_view`, `address_view`, `route_view`) pour mesurer la fréquentation communale.
 - Mise à jour finale de la vue `public_map_events`.
 
+### `0008_communal_alerts.sql` — Alertes & Flash Communal en Direct
+- Création de la table **`village_alerts`** (`id`, `level`, `title`, `message`, `is_active`, `created_at`, `created_by`).
+- Permet à la commune d'envoyer instantanément une notification visuelle et sonore par Server-Sent Events (SSE) sur tous les téléphones et ordinateurs connectés en même temps (météo, repli sous préau, fin de tournée).
+
 ---
 
 ## 🛠️ Scripts de Données et CLI

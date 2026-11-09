@@ -19,6 +19,10 @@ import {
   Sun,
   Play,
   Square,
+  AlertTriangle,
+  Megaphone,
+  Bell,
+  X,
 } from "lucide-react";
 import FloatingMarker from "@/components/map/FloatingMarker";
 import AtmosphericParticles from "@/components/map/AtmosphericParticles";
@@ -27,7 +31,8 @@ import MobileDrawer, {
   type DrawerSnap,
 } from "@/components/map/MobileDrawer";
 import { SEASON_THEMES, triggerHaptic } from "@/lib/themeTokens";
-import type { SeasonMode, VillageMapEvent } from "@/types";
+import { toggleOutOfCandyAction } from "@/app/actions/halloween";
+import type { SeasonMode, VillageMapEvent, CommunalAlert, MyHalloweenStatus } from "@/types";
 
 export interface Map3DContainerProps {
   initialSeason: SeasonMode;
@@ -37,6 +42,8 @@ export interface Map3DContainerProps {
   villageCenter: [number, number];
   villageBounds: [[number, number], [number, number]];
   mapStyle?: string;
+  initialAlert?: CommunalAlert | null;
+  myHalloweenStatus?: MyHalloweenStatus | null;
 }
 
 const VISITED_KEY = "village_visited_addresses_v1";
@@ -181,6 +188,8 @@ export default function Map3DContainer({
   events,
   villageCenter,
   villageBounds,
+  initialAlert = null,
+  myHalloweenStatus = null,
 }: Map3DContainerProps) {
   const safeCenter = useMemo(() => sanitizeCenter(villageCenter), [villageCenter]);
   const safeBounds = useMemo(() => sanitizeBounds(villageBounds, safeCenter), [villageBounds, safeCenter]);
@@ -210,6 +219,36 @@ export default function Map3DContainer({
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [liveToast, setLiveToast] = useState<{ message: string; id: number } | null>(null);
   const [isLiveConnected, setIsLiveConnected] = useState(false);
+
+  // Alerte communale en direct & état bonbons de l'habitant
+  const [communalAlert, setCommunalAlert] = useState<CommunalAlert | null>(initialAlert);
+  const [dismissedAlertId, setDismissedAlertId] = useState<string | null>(null);
+  const [myCandyState, setMyCandyState] = useState<MyHalloweenStatus | null>(myHalloweenStatus);
+  const [isTogglingCandy, setIsTogglingCandy] = useState(false);
+
+  const handleToggleMyCandy = async () => {
+    if (!myCandyState || isTogglingCandy) return;
+    setIsTogglingCandy(true);
+    triggerHaptic(20);
+    const nextState = !myCandyState.outOfCandy;
+    // Optimistic update immédiat
+    setMyCandyState({ ...myCandyState, outOfCandy: nextState });
+
+    try {
+      await toggleOutOfCandyAction();
+      setLiveToast({
+        message: nextState
+          ? "🚫 Votre maison est signalée en rupture pour ce soir."
+          : "🎉 Distribution de bonbons réactivée !",
+        id: Date.now(),
+      });
+    } catch {
+      // Annulation en cas d'erreur
+      setMyCandyState({ ...myCandyState, outOfCandy: !nextState });
+    } finally {
+      setIsTogglingCandy(false);
+    }
+  };
 
   const theme = SEASON_THEMES[activeLayer];
 
@@ -266,6 +305,20 @@ export default function Map3DContainer({
               : `🎉 Bonbons à nouveau disponibles ! (${data.streetName || ""} ${data.houseNumber || ""})`;
             setLiveToast({ message: msg, id: Date.now() });
             triggerHaptic(15);
+          } else if (data.type === "communal_alert") {
+            if (data.active) {
+              setCommunalAlert({
+                id: data.id || `live-${Date.now()}`,
+                level: data.level,
+                title: data.title,
+                message: data.message,
+                created_at: data.timestamp,
+              });
+              setDismissedAlertId(null);
+              triggerHaptic(30);
+            } else {
+              setCommunalAlert(null);
+            }
           }
         } catch {
           /* ignore parse error */
@@ -846,6 +899,125 @@ export default function Map3DContainer({
       }`}
     >
       <div ref={containerRef} className="w-full h-full" />
+
+      {/* 📢 Bannière d'Alerte Communale en direct (SSE) */}
+      <AnimatePresence>
+        {communalAlert && communalAlert.id !== dismissedAlertId && (
+          <motion.div
+            initial={{ opacity: 0, y: -40, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -30, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 400, damping: 28 }}
+            className="fixed top-3 left-3 right-3 sm:left-1/2 sm:-translate-x-1/2 sm:max-w-xl z-50 pointer-events-auto"
+          >
+            <div
+              className={`rounded-2xl border p-4 shadow-2xl backdrop-blur-2xl flex items-start gap-3.5 text-white ${
+                communalAlert.level === "urgent"
+                  ? "bg-red-950/95 border-red-500/60 shadow-red-950/40"
+                  : communalAlert.level === "warning"
+                  ? "bg-amber-950/95 border-amber-500/60 shadow-amber-950/40"
+                  : "bg-stone-950/95 border-sky-500/60 shadow-stone-950/40"
+              }`}
+            >
+              <div
+                className={`p-2 rounded-xl shrink-0 ${
+                  communalAlert.level === "urgent"
+                    ? "bg-red-500/20 text-red-400"
+                    : communalAlert.level === "warning"
+                    ? "bg-amber-500/20 text-amber-400"
+                    : "bg-sky-500/20 text-sky-400"
+                }`}
+              >
+                {communalAlert.level === "urgent" ? (
+                  <AlertTriangle className="w-5 h-5 animate-pulse" />
+                ) : (
+                  <Megaphone className="w-5 h-5" />
+                )}
+              </div>
+
+              <div className="flex-1 min-w-0 pr-1">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                      communalAlert.level === "urgent"
+                        ? "bg-red-500 text-white"
+                        : communalAlert.level === "warning"
+                        ? "bg-amber-500 text-stone-950"
+                        : "bg-sky-500 text-white"
+                    }`}
+                  >
+                    Flash Commune
+                  </span>
+                  <span className="text-xs font-bold text-white truncate">
+                    {communalAlert.title}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-stone-200 leading-relaxed break-words font-medium">
+                  {communalAlert.message}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDismissedAlertId(communalAlert.id)}
+                className="p-1 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition shrink-0"
+                aria-label="Masquer l'alerte"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 🍬 Bouton d'action rapide d'Halloween pour l'habitant connecté (1 clic direct sur la carte) */}
+      {activeLayer === "halloween" && myCandyState?.isRegistered && myCandyState?.isDistributing && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="fixed top-16 left-1/2 -translate-x-1/2 z-30 w-[92%] max-w-md pointer-events-auto"
+        >
+          <div
+            className={`rounded-2xl border p-2.5 shadow-xl backdrop-blur-2xl flex items-center justify-between gap-2.5 transition-all ${
+              myCandyState.outOfCandy
+                ? "bg-stone-900/90 border-stone-700/80 text-stone-200"
+                : "bg-amber-950/90 border-amber-500/50 text-amber-100"
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0 pl-1.5">
+              <span className="text-base shrink-0">
+                {myCandyState.outOfCandy ? "🚫" : "🍬"}
+              </span>
+              <div className="truncate">
+                <div className="text-[10px] font-bold uppercase tracking-wider opacity-80">
+                  Votre maison ({myCandyState.addressLabel})
+                </div>
+                <div className="text-xs font-bold text-white truncate">
+                  {myCandyState.outOfCandy ? "Stock signalé épuisé" : "Distribution active"}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={isTogglingCandy}
+              onClick={handleToggleMyCandy}
+              className={`shrink-0 rounded-xl px-3.5 py-2 text-xs font-bold shadow-md transition-all active:scale-95 ${
+                myCandyState.outOfCandy
+                  ? "bg-emerald-600 hover:bg-emerald-500 text-white"
+                  : "bg-red-600 hover:bg-red-500 text-white animate-pulse"
+              }`}
+            >
+              {isTogglingCandy
+                ? "Envoi..."
+                : myCandyState.outOfCandy
+                ? "Réactiver"
+                : "Plus de bonbons !"}
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {/* Toast de notification temps réel (SSE) */}
       <AnimatePresence>
