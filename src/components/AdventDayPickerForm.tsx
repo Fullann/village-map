@@ -4,8 +4,15 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import PhotoUploadField from "@/components/PhotoUploadField";
 
+export interface AdventDayMeta {
+  status: string;
+  is_communal: boolean;
+  label?: string | null;
+}
+
 interface AdventDayPickerFormProps {
   takenByOthers: number[];
+  takenMeta?: Record<number, AdventDayMeta>;
   initialDay: number | null;
   initialType: "window_only" | "hospitality";
   initialActivityLabel: string;
@@ -16,6 +23,8 @@ interface AdventDayPickerFormProps {
   initialIsAccessible?: boolean;
   initialPhotoUrl?: string | null;
   hasExisting: boolean;
+  isCancellationClosed?: boolean;
+  cancellationDeadline?: string | null;
   submitAction: (fd: FormData) => Promise<void>;
 }
 
@@ -33,6 +42,7 @@ const FORMULA_SUGGESTIONS: Array<{
 
 export default function AdventDayPickerForm({
   takenByOthers,
+  takenMeta = {},
   initialDay,
   initialType,
   initialActivityLabel,
@@ -43,6 +53,8 @@ export default function AdventDayPickerForm({
   initialIsAccessible = true,
   initialPhotoUrl,
   hasExisting,
+  isCancellationClosed = false,
+  cancellationDeadline,
   submitAction,
 }: AdventDayPickerFormProps) {
   const takenSet = new Set(takenByOthers);
@@ -76,21 +88,43 @@ export default function AdventDayPickerForm({
       <input type="hidden" name="requested_day" value={selectedDay ?? ""} />
       <input type="hidden" name="participation_type" value={participationType} />
 
-      {/* 1. Choix de la date (1 au 24 décembre) */}
+      {/* 1. Choix de la proposition de date (1 au 24 décembre) */}
       <div>
-        <div className="flex items-baseline justify-between mb-2.5">
+        <div className="flex items-baseline justify-between mb-1.5">
           <label className="text-xs font-semibold text-stone-800">
-            1. Choisissez une date disponible (1 au 24 décembre)
+            1. Proposez une date souhaitée (1 au 24 décembre)
           </label>
           <span className="font-mono-tabular text-[11px] text-stone-500">
-            {24 - takenSet.size} date(s) libre(s) sur 24
+            {24 - takenSet.size} date(s) disponible(s)
           </span>
         </div>
+        <p className="text-[11px] text-stone-500 mb-2.5">
+          Indiquez à la commune le jour que vous souhaiteriez animer. L&apos;attribution officielle sera confirmée par la mairie.
+        </p>
 
         <div className="grid grid-cols-6 sm:grid-cols-8 gap-2">
           {Array.from({ length: 24 }, (_, i) => i + 1).map((day) => {
             const isTaken = takenSet.has(day);
             const isSelected = selectedDay === day;
+            const meta = takenMeta[day];
+            const isBlocked = meta?.status === "blocked";
+            const isCommunal = meta?.is_communal || meta?.status === "reserved_commune";
+
+            let labelText = "Libre";
+            let buttonTitle = `${day} décembre : disponible`;
+
+            if (isSelected) {
+              labelText = "Choisi";
+            } else if (isBlocked) {
+              labelText = "Bloqué";
+              buttonTitle = `${day} décembre : Bloqué par la commune${meta?.label ? ` (${meta.label})` : ""}`;
+            } else if (isCommunal) {
+              labelText = "Commune";
+              buttonTitle = `${day} décembre : Réservé par la commune${meta?.label ? ` (${meta.label})` : ""}`;
+            } else if (isTaken) {
+              labelText = "Pris";
+              buttonTitle = `${day} décembre : déjà réservé par un autre foyer`;
+            }
 
             return (
               <button
@@ -98,26 +132,50 @@ export default function AdventDayPickerForm({
                 type="button"
                 disabled={isTaken}
                 onClick={() => setSelectedDay(day)}
-                title={
-                  isTaken
-                    ? `${day} décembre : déjà réservé par un autre foyer`
-                    : `${day} décembre : disponible`
-                }
+                title={buttonTitle}
                 className={`h-11 rounded-xl border text-xs font-mono-tabular font-semibold transition flex flex-col items-center justify-center ${
-                  isTaken
-                    ? "border-stone-200 bg-stone-100 text-stone-400 line-through cursor-not-allowed"
-                    : isSelected
+                  isSelected
                     ? "border-[#14532d] bg-[#14532d] text-white shadow-sm ring-2 ring-[#14532d]/25"
+                    : isBlocked
+                    ? "border-stone-300 bg-stone-200/80 text-stone-500 cursor-not-allowed opacity-90"
+                    : isCommunal
+                    ? "border-purple-300 bg-purple-50 text-purple-700 cursor-not-allowed opacity-95"
+                    : isTaken
+                    ? "border-stone-200 bg-stone-100 text-stone-400 line-through cursor-not-allowed"
                     : "border-stone-200/90 bg-white text-stone-800 hover:border-stone-900 hover:bg-stone-50"
                 }`}
               >
                 <span>{day}</span>
-                <span className="font-sans text-[9px] font-normal opacity-80">
-                  {isTaken ? "Pris" : isSelected ? "Choisi" : "Libre"}
+                <span className="font-sans text-[9px] font-normal opacity-85">
+                  {labelText}
                 </span>
               </button>
             );
           })}
+        </div>
+
+        {/* Légende explicative */}
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-stone-600 bg-stone-50/80 border border-stone-200/60 rounded-lg p-2.5">
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full border border-stone-300 bg-white inline-block" />
+            <span>Libre</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#14532d] inline-block" />
+            <span>Sélectionné</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-purple-600 inline-block" />
+            <span>Réservé Commune</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-stone-400 inline-block" />
+            <span>Bloqué Commune</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-stone-300 inline-block" />
+            <span>Réservé habitant</span>
+          </div>
         </div>
 
         {selectedDay ? (
@@ -290,10 +348,22 @@ export default function AdventDayPickerForm({
         </div>
       </div>
 
-      <Button type="submit" disabled={!selectedDay} className="w-full h-11 rounded-xl">
+      {isCancellationClosed && hasExisting && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+          ⚠️ La date limite de modification/désinscription fixée par la commune {cancellationDeadline ? `(le ${cancellationDeadline})` : ""} est passée. Votre participation est enregistrée. Pour tout changement, contactez la mairie.
+        </div>
+      )}
+
+      <Button
+        type="submit"
+        disabled={!selectedDay || (hasExisting && isCancellationClosed)}
+        className="w-full h-11 rounded-xl"
+      >
         {hasExisting
-          ? `Enregistrer ma formule pour le ${selectedDay ?? ""} décembre`
-          : `Réserver le ${selectedDay ?? ""} décembre`}
+          ? isCancellationClosed
+            ? "Modifications fermées par la commune"
+            : `Mettre à jour ma proposition pour le ${selectedDay ?? ""} décembre`
+          : `Proposer le ${selectedDay ?? ""} décembre à la commune`}
       </Button>
     </form>
   );

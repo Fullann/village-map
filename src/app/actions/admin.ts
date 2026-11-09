@@ -10,6 +10,10 @@ import {
   sendAdventPublishedEmail,
 } from "@/lib/mail";
 import { broadcastLiveEvent } from "@/lib/realtime";
+import {
+  CommunalAdventReservationSchema,
+  CommunalAdventBlockSchema,
+} from "@/lib/schemas";
 
 export async function setSeason(formData: FormData) {
   const user = await getSessionUser();
@@ -18,6 +22,7 @@ export async function setSeason(formData: FormData) {
   const season = formData.get("season") as string;
   const hideFuture = formData.get("hide_future") === "on";
   const opensAt = (formData.get("advent_registration_opens_at") as string) || "2026-11-01";
+  const cancellationDeadline = (formData.get("advent_cancellation_deadline") as string) || null;
 
   await withRlsContext(user.id, async (client) => {
     await client.query(
@@ -25,10 +30,11 @@ export async function setSeason(formData: FormData) {
        SET current_season = $1,
            advent_hide_future_details = $2,
            advent_registration_opens_at = $3::DATE,
+           advent_cancellation_deadline = $4::DATE,
            updated_at = NOW(),
-           updated_by = $4
+           updated_by = $5
        WHERE id = 1`,
-      [season, hideFuture, opensAt, user.id]
+      [season, hideFuture, opensAt, cancellationDeadline, user.id]
     );
   });
 
@@ -170,7 +176,18 @@ export async function assignAdventDay(formData: FormData) {
            SET status = 'submitted', day_number = NULL
            WHERE season_year = EXTRACT(YEAR FROM CURRENT_DATE)
              AND day_number = $1
-             AND id <> $2`,
+             AND id <> $2
+             AND is_communal_event = false`,
+          [dayNumber, registrationId]
+        );
+
+        // Supprime tout blocage ou créneau communal si l'admin assigne expressément ce jour
+        await client.query(
+          `DELETE FROM public.advent_calendar
+           WHERE season_year = EXTRACT(YEAR FROM CURRENT_DATE)
+             AND day_number = $1
+             AND id <> $2
+             AND is_communal_event = true`,
           [dayNumber, registrationId]
         );
 
@@ -185,6 +202,170 @@ export async function assignAdventDay(formData: FormData) {
   } catch (err) {
     console.error("Erreur attribution jour Avent :", err);
     return { success: false, error: "Impossible d'attribuer ce jour." };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/advent");
+  revalidatePath("/");
+  return { success: true };
+}
+
+export async function reserveCommunalAdventDay(formData: FormData) {
+  const user = await getSessionUser();
+  if (!user || (user.role !== "admin" && user.role !== "moderator")) {
+    return { success: false, error: "Accès refusé" };
+  }
+
+  const raw = {
+    day_number: formData.get("day_number"),
+    address_id: formData.get("address_id"),
+    activity_label: formData.get("activity_label"),
+    lighting_time: (formData.get("lighting_time") as string) || "18:00",
+    event_start_time: (formData.get("event_start_time") as string) || undefined,
+    hospitality_details: (formData.get("hospitality_details") as string) || undefined,
+  };
+
+  const parsed = CommunalAdventReservationSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Données invalides.",
+    };
+  }
+
+  const { day_number, address_id, activity_label, lighting_time, event_start_time, hospitality_details } = parsed.data;
+
+  try {
+    await withRlsContext(user.id, async (client) => {
+      // 1. Libérer tout habitant qui était assigné à ce jour
+      await client.query(
+        `UPDATE public.advent_calendar
+         SET day_number = NULL, status = 'submitted', updated_at = NOW()
+         WHERE season_year = EXTRACT(YEAR FROM CURRENT_DATE)
+           AND day_number = $1
+           AND is_communal_event = false`,
+        [day_number]
+      );
+
+      // 2. Supprimer tout ancien créneau communal sur ce jour
+      await client.query(
+        `DELETE FROM public.advent_calendar
+         WHERE season_year = EXTRACT(YEAR FROM CURRENT_DATE)
+           AND day_number = $1`,
+        [day_number]
+      );
+
+      // 3. Insérer le créneau communal pré-réservé
+      await client.query(
+        `INSERT INTO public.advent_calendar
+           (season_year, day_number, requested_day, address_id, user_id, status, is_communal_event, activity_label, lighting_time, event_start_time, hospitality_details, is_approved)
+         VALUES (EXTRACT(YEAR FROM CURRENT_DATE), $1, $1, $2, $3, 'reserved_commune', true, $4, $5, $6, $7, true)`,
+        [
+          day_number,
+          address_id,
+          user.id,
+          activity_label,
+          lighting_time,
+          event_start_time ?? null,
+          hospitality_details ?? null,
+        ]
+      );
+    });
+  } catch (err) {
+    console.error("Erreur pré-réservation communale :", err);
+    return { success: false, error: "Impossible d'enregistrer la réservation communale." };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/advent");
+  revalidatePath("/");
+  return { success: true };
+}
+
+export async function blockAdventDay(formData: FormData) {
+  const user = await getSessionUser();
+  if (!user || (user.role !== "admin" && user.role !== "moderator")) {
+    return { success: false, error: "Accès refusé" };
+  }
+
+  const raw = {
+    day_number: formData.get("day_number"),
+    block_reason: formData.get("block_reason"),
+  };
+
+  const parsed = CommunalAdventBlockSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Raison de blocage invalide.",
+    };
+  }
+
+  const { day_number, block_reason } = parsed.data;
+
+  try {
+    await withRlsContext(user.id, async (client) => {
+      // 1. Libérer tout habitant qui était assigné à ce jour
+      await client.query(
+        `UPDATE public.advent_calendar
+         SET day_number = NULL, status = 'submitted', updated_at = NOW()
+         WHERE season_year = EXTRACT(YEAR FROM CURRENT_DATE)
+           AND day_number = $1
+           AND is_communal_event = false`,
+        [day_number]
+      );
+
+      // 2. Supprimer tout créneau préexistant sur ce jour
+      await client.query(
+        `DELETE FROM public.advent_calendar
+         WHERE season_year = EXTRACT(YEAR FROM CURRENT_DATE)
+           AND day_number = $1`,
+        [day_number]
+      );
+
+      // 3. Insérer le blocage
+      await client.query(
+        `INSERT INTO public.advent_calendar
+           (season_year, day_number, requested_day, address_id, user_id, status, is_communal_event, block_reason, is_approved)
+         VALUES (EXTRACT(YEAR FROM CURRENT_DATE), $1, $1, NULL, $2, 'blocked', true, $3, true)`,
+        [day_number, user.id, block_reason]
+      );
+    });
+  } catch (err) {
+    console.error("Erreur blocage de date :", err);
+    return { success: false, error: "Impossible de bloquer cette date." };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/advent");
+  revalidatePath("/");
+  return { success: true };
+}
+
+export async function freeAdventDay(formData: FormData) {
+  const user = await getSessionUser();
+  if (!user || (user.role !== "admin" && user.role !== "moderator")) {
+    return { success: false, error: "Accès refusé" };
+  }
+
+  const dayNumber = Number(formData.get("day_number"));
+  if (!dayNumber || dayNumber < 1 || dayNumber > 24) {
+    return { success: false, error: "Jour invalide." };
+  }
+
+  try {
+    await withRlsContext(user.id, async (client) => {
+      await client.query(
+        `DELETE FROM public.advent_calendar
+         WHERE season_year = EXTRACT(YEAR FROM CURRENT_DATE)
+           AND day_number = $1
+           AND (is_communal_event = true OR status IN ('reserved_commune', 'blocked'))`,
+        [dayNumber]
+      );
+    });
+  } catch (err) {
+    console.error("Erreur libération de jour :", err);
+    return { success: false, error: "Impossible de libérer cette date." };
   }
 
   revalidatePath("/admin");

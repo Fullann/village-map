@@ -135,6 +135,22 @@ Active `ROW LEVEL SECURITY` sur chaque table sensible :
 - Création de la table **`village_alerts`** (`id`, `level`, `title`, `message`, `is_active`, `created_at`, `created_by`).
 - Permet à la commune d'envoyer instantanément une notification visuelle et sonore par Server-Sent Events (SSE) sur tous les téléphones et ordinateurs connectés en même temps (météo, repli sous préau, fin de tournée).
 
+### `0009_advent_communal_slots.sql` — Créneaux Communaux & Blocages de Dates
+- Modification de **`advent_calendar`** :
+  - `ALTER COLUMN address_id DROP NOT NULL` (permet de bloquer un jour sans adresse associée).
+  - `ALTER COLUMN user_id DROP NOT NULL` (permet des événements communaux sans profil habitant individuel).
+  - `ADD COLUMN is_communal_event BOOLEAN NOT NULL DEFAULT false`.
+  - `ADD COLUMN block_reason TEXT` (motif explicite du blocage : fête de l'école, paroisse, jour férié).
+  - Élargissement de la contrainte `CHECK (status IN ('submitted', 'assigned', 'rejected', 'reserved_commune', 'blocked'))`.
+- Mise à jour de la vue **`advent_taken_days`** avec `is_communal_event` et `block_reason`.
+- Mise à jour de la vue cartographique **`public_map_events`** pour intégrer automatiquement les événements communaux (`status IN ('assigned', 'reserved_commune')`).
+
+### `0010_advent_proposals_and_deadline.sql` — Propositions d'Avent & Date Limite de Désinscription
+- Ajout de `advent_cancellation_deadline DATE` dans `village_settings`.
+- Mise à jour de la vue **`public_village_state`** avec `advent_cancellation_deadline` et le booléen calculé `advent_cancellation_closed`.
+- Les habitants émettent un souhait de date (`requested_day`) en statut `submitted` sans préempter le jour ; l'attribution officielle (`day_number`) est réservée à la commune.
+- Désinscription citoyenne autorisée en 1 clic jusqu'à la date limite fixée par la commune.
+
 ---
 
 ## 🛠️ Scripts de Données et CLI

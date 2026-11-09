@@ -62,29 +62,35 @@ export default async function HomePage() {
       initialAlert = alertRows[0];
     }
 
-    // Récupère le statut de l'utilisateur connecté pour Halloween (bouton d'action rapide direct sur la carte)
+    // Récupère le statut de l'utilisateur connecté pour Halloween (bouton d'action rapide direct sur la carte).
+    // Ce bandeau n'est actif QUE si la commune est en mode Halloween ET le jour de l'événement (31 octobre ou 31 décembre).
     const me = await getSessionUser();
-    if (me && me.address_id) {
-      const regRows = await query<{
-        is_distributing: boolean;
-        out_of_candy: boolean;
-        street_name: string;
-        house_number: string;
-      }>(
-        `SELECT h.is_distributing, h.out_of_candy, a.street_name, a.house_number
-         FROM public.halloween_registrations h
-         JOIN public.addresses a ON a.id = h.address_id
-         WHERE h.user_id = $1 AND h.season_year = EXTRACT(YEAR FROM CURRENT_DATE)
-         LIMIT 1`,
-        [me.id]
-      );
-      if (regRows[0]) {
-        myHalloweenStatus = {
-          isRegistered: true,
-          isDistributing: Boolean(regRows[0].is_distributing),
-          outOfCandy: Boolean(regRows[0].out_of_candy),
-          addressLabel: `${regRows[0].street_name} ${regRows[0].house_number}`,
-        };
+    if (season === "halloween" && me && me.address_id) {
+      const now = new Date();
+      const isTargetDay = now.getDate() === 31 && (now.getMonth() === 9 || now.getMonth() === 11);
+
+      if (isTargetDay) {
+        const regRows = await query<{
+          is_distributing: boolean;
+          out_of_candy: boolean;
+          street_name: string;
+          house_number: string;
+        }>(
+          `SELECT h.is_distributing, h.out_of_candy, a.street_name, a.house_number
+           FROM public.halloween_registrations h
+           JOIN public.addresses a ON a.id = h.address_id
+           WHERE h.user_id = $1 AND h.season_year = EXTRACT(YEAR FROM CURRENT_DATE)
+           LIMIT 1`,
+          [me.id]
+        );
+        if (regRows[0]) {
+          myHalloweenStatus = {
+            isRegistered: true,
+            isDistributing: Boolean(regRows[0].is_distributing),
+            outOfCandy: Boolean(regRows[0].out_of_candy),
+            addressLabel: `${regRows[0].street_name} ${regRows[0].house_number}`,
+          };
+        }
       }
     }
   } catch {

@@ -87,6 +87,11 @@ sequenceDiagram
 - **Règles de visibilité jusqu'au jour J** : La vue SQL `public_map_events` filtre les détails :
   - *Avant le jour J* : La fenêtre affiche uniquement son numéro et son adresse. Les détails de la verrée et l'heure précise restent secrets.
   - *Le jour J* : Les détails complets sont automatiquement révélés pour inciter les villageois à se rassembler.
+- **Pré-réservation & Blocage de dates par la Commune** :
+  - **Pré-réservation communale** : La commune peut pré-réserver des dates officielles (ex: 1er décembre pour l'inauguration à la Maison de Commune, 6 décembre pour la Saint-Nicolas, 24 décembre pour le réveillon). Ces dates apparaissent avec un badge violet distinct sur l'administration et sur la carte interactive avec leur adresse et leur formule.
+  - **Blocage de dates sans animation** : La commune peut bloquer certains jours (soirée de spectacle de l'école, cultes de la paroisse, jours fériés). Ces dates sont grisées/hachurées pour les habitants avec le motif explicite, et ne figurent pas sur la carte publique.
+  - **Libération en 1 clic** : L'administrateur peut à tout moment débloquer ou libérer une date communale pour la remettre immédiatement à disposition des habitants.
+
 - **Affiche Communale Prête pour Impression** :
   - La route `/admin/print-advent` génère une page stylisée A4/A3 au format grille 1 à 24 prête à être imprimée pour affichage au tableau communal de la mairie, à l'école ou à l'épicerie du village.
 

@@ -604,6 +604,49 @@ export default function MobileDrawer({
         )}
       </div>
 
+      {/* Suivi de la tournée pour les familles (cases à cocher & progression) */}
+      {events.length > 0 && (
+        <div className="rounded-xl border border-stone-200/80 bg-stone-50/90 p-2.5 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="text-base">🎒</span>
+            <div>
+              <div className="font-bold text-stone-900 text-[11px] flex items-center gap-1.5">
+                <span>Ma Tournée :</span>
+                <span className="text-emerald-700">
+                  {events.filter((e) => visitedIds.includes(e.address_id)).length} / {events.length} visitée(s)
+                </span>
+              </div>
+              <div className="h-1.5 w-32 bg-stone-200 rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-emerald-600 transition-all duration-300"
+                  style={{
+                    width: `${
+                      events.length > 0
+                        ? (events.filter((e) => visitedIds.includes(e.address_id)).length /
+                            events.length) *
+                          100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {events.some((e) => visitedIds.includes(e.address_id)) && (
+            <button
+              type="button"
+              onClick={() => {
+                for (const id of visitedIds) onToggleVisited(id);
+              }}
+              className="text-[10px] text-stone-500 hover:text-stone-900 font-medium underline underline-offset-2 transition"
+            >
+              Réinitialiser
+            </button>
+          )}
+        </div>
+      )}
+
       <motion.div
         variants={listContainerVariants}
         initial="hidden"
@@ -715,13 +758,26 @@ export default function MobileDrawer({
                         {formatDistance(meters)}
                       </span>
                     )}
-                    {isVisited && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700">
-                        <Check className="w-3 h-3 stroke-[2.5]" />
-                        <span>Visité</span>
-                      </span>
-                    )}
                   </div>
+
+                  {/* Bouton de case à cocher rapide "Déjà visité" */}
+                  <button
+                    type="button"
+                    title={isVisited ? "Marquer comme non visité" : "Marquer comme visité"}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      triggerHaptic(18);
+                      onToggleVisited(ev.address_id);
+                    }}
+                    className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 border transition-all active:scale-90 ${
+                      isVisited
+                        ? "bg-emerald-600 border-emerald-600 text-white shadow-2xs"
+                        : "border-stone-300 bg-white hover:border-stone-500 text-transparent"
+                    }`}
+                  >
+                    <Check className={`w-3.5 h-3.5 stroke-[3] ${isVisited ? "text-white" : "text-transparent"}`} />
+                  </button>
+
                   <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-stone-900 group-hover:translate-x-0.5 transition-all" />
                 </div>
               </motion.button>

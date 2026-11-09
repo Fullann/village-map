@@ -31,3 +31,17 @@ export const AdventApplicationSchema = z.object({
   is_accessible_step_free: z.boolean().default(true),
   photo_url: safePhotoUrl,
 });
+
+export const CommunalAdventReservationSchema = z.object({
+  day_number: z.coerce.number().int().min(1).max(24),
+  address_id: z.string().uuid("Veuillez sélectionner une adresse valide"),
+  activity_label: z.string().trim().min(2).max(120),
+  lighting_time: z.string().regex(/^\d{2}:\d{2}$/).default("18:00"),
+  event_start_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  hospitality_details: z.string().max(350).optional(),
+});
+
+export const CommunalAdventBlockSchema = z.object({
+  day_number: z.coerce.number().int().min(1).max(24),
+  block_reason: z.string().trim().min(2).max(150),
+});

@@ -26,13 +26,27 @@ async function ensureSchemaSynced() {
   try {
     await pool.query(`
       ALTER TABLE public.advent_calendar
+        ALTER COLUMN address_id DROP NOT NULL,
+        ALTER COLUMN user_id DROP NOT NULL,
         ADD COLUMN IF NOT EXISTS activity_label TEXT,
         ADD COLUMN IF NOT EXISTS is_accessible_step_free BOOLEAN NOT NULL DEFAULT true,
-        ADD COLUMN IF NOT EXISTS photo_url TEXT;
+        ADD COLUMN IF NOT EXISTS photo_url TEXT,
+        ADD COLUMN IF NOT EXISTS is_communal_event BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS block_reason TEXT;
+
+      ALTER TABLE public.advent_calendar
+        DROP CONSTRAINT IF EXISTS advent_calendar_status_check;
+
+      ALTER TABLE public.advent_calendar
+        ADD CONSTRAINT advent_calendar_status_check
+        CHECK (status IN ('submitted', 'assigned', 'rejected', 'reserved_commune', 'blocked'));
 
       ALTER TABLE public.halloween_registrations
         ADD COLUMN IF NOT EXISTS is_accessible_step_free BOOLEAN NOT NULL DEFAULT true,
         ADD COLUMN IF NOT EXISTS photo_url TEXT;
+
+      ALTER TABLE public.village_settings
+        ADD COLUMN IF NOT EXISTS advent_cancellation_deadline DATE;
 
       CREATE TABLE IF NOT EXISTS public.analytics_visits (
           id BIGSERIAL PRIMARY KEY,
@@ -54,6 +68,41 @@ async function ensureSchemaSynced() {
 
       CREATE INDEX IF NOT EXISTS idx_village_alerts_active
         ON public.village_alerts (is_active, created_at DESC);
+
+      DROP VIEW IF EXISTS public.public_village_state;
+
+      CREATE VIEW public.public_village_state AS
+      SELECT
+          current_season,
+          season_year,
+          advent_hide_future_details,
+          advent_registration_opens_at::TEXT AS advent_registration_opens_at,
+          advent_cancellation_deadline::TEXT AS advent_cancellation_deadline,
+          (advent_cancellation_deadline IS NOT NULL AND CURRENT_DATE > advent_cancellation_deadline) AS advent_cancellation_closed,
+          advent_is_published,
+          map_center_lng,
+          map_center_lat,
+          map_bounds_sw_lng,
+          map_bounds_sw_lat,
+          map_bounds_ne_lng,
+          map_bounds_ne_lat,
+          map_style_url
+      FROM public.village_settings
+      WHERE id = 1;
+
+      DROP VIEW IF EXISTS public.advent_taken_days;
+
+      CREATE VIEW public.advent_taken_days AS
+      SELECT
+          ac.day_number,
+          ac.user_id,
+          ac.status,
+          ac.activity_label,
+          ac.is_communal_event,
+          ac.block_reason
+      FROM public.advent_calendar ac
+      JOIN public.village_settings s ON s.season_year = ac.season_year AND s.id = 1
+      WHERE ac.day_number IS NOT NULL AND ac.status <> 'rejected';
 
       DROP VIEW IF EXISTS public.public_map_events;
 
@@ -100,7 +149,7 @@ async function ensureSchemaSynced() {
           ON ac.address_id = a.id
          AND ac.season_year = s.season_year
          AND ac.is_approved = true
-         AND ac.status = 'assigned'
+         AND ac.status IN ('assigned', 'reserved_commune')
          AND ac.day_number IS NOT NULL
       WHERE
           (s.current_season = 'halloween' AND h.id IS NOT NULL)

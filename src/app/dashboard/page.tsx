@@ -86,7 +86,15 @@ export default async function DashboardPage() {
       </section>
 
       {/* Bouton d'action rapide en 1 clic : Stock de bonbons épuisé ce soir */}
-      {verified && halloweenReg && halloweenReg.is_distributing && (
+      {/* Actif uniquement si la saison est en mode Halloween ET le jour du 31 (31 octobre ou 31 décembre) */}
+      {state?.current_season === "halloween" &&
+        (() => {
+          const now = new Date();
+          return now.getDate() === 31 && (now.getMonth() === 9 || now.getMonth() === 11);
+        })() &&
+        verified &&
+        halloweenReg &&
+        halloweenReg.is_distributing && (
         <section
           className={`rounded-lg border p-4 shadow-sm space-y-3 ${
             halloweenReg.out_of_candy

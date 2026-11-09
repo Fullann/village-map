@@ -23,11 +23,12 @@ Les Server Actions sont localisées dans `src/app/actions/`. Elles s'exécutent 
 | `registerHalloween(formData)` | Enregistre ou met à jour la participation du foyer à la soirée d'Halloween. Valide les données avec `HalloweenSchema` (Zod). | `is_distributing`, `start_time`, `end_time`, `is_self_service`, `is_accessible_step_free`, `access_instructions`, `photo_url` |
 | `toggleOutOfCandy(formData)` | Permet au résident de basculer instantanément l'état *"Plus de bonbons"* le soir du 31 octobre depuis son espace citoyen. | `out_of_candy: boolean` |
 
-### 3. Inscriptions Avent (`src/app/actions/advent.ts`)
+### 3. Inscriptions & Propositions Avent (`src/app/actions/advent.ts`)
 
 | Action | Description | Paramètres / FormData |
 |---|---|---|
-| `registerAdventDay(formData)` | Réserve une date du calendrier (1 au 24 décembre). Verrouille immédiatement la date via la contrainte unique active. Valide avec `AdventApplicationSchema` (Zod). | `requested_day: number`, `participation_type`, `activity_label`, `lighting_time`, `event_start_time`, `hospitality_details`, `is_accessible_step_free`, `photo_url` |
+| `submitAdventApplication(formData)` | Transmet une proposition de date souhaitée (1 au 24 décembre) pour examen par la mairie. Statut initial `submitted` ; l'attribution définitive (`day_number`) est gérée par la commune. Valide avec `AdventApplicationSchema` (Zod). | `requested_day: number`, `participation_type`, `activity_label`, `lighting_time`, `event_start_time`, `hospitality_details`, `is_accessible_step_free`, `photo_url` |
+| `withdrawAdventApplication()` | Permet au résident de retirer sa proposition et se désinscrire du Calendrier de l'Avent, à condition que la date limite communale `advent_cancellation_deadline` ne soit pas dépassée. | — |
 
 ### 4. Vérification de Domicile (`src/app/actions/verify-residence.ts`)
 
@@ -50,6 +51,9 @@ Les Server Actions sont localisées dans `src/app/actions/`. Elles s'exécutent 
 | `revokeUser(formData)` | Révoque l'accès ou la vérification d'un profil suspect. | `user_id: string` |
 | `publishCommunalAlert(formData)` | Diffuse instantanément un message flash communal en direct (SSE) sur tous les téléphones et ordinateurs connectés. | `level: info/warning/urgent`, `title`, `message` |
 | `dismissCommunalAlert(formData)` | Retire immédiatement l'alerte active courante de tous les écrans connectés. | `alert_id: string` |
+| `reserveCommunalAdventDay(formData)` | Pré-réserve une date du calendrier pour un événement officiel de la commune (ex: Inauguration Maison de Commune, Saint-Nicolas). Crée l'entrée avec `status = 'reserved_commune'` et `is_communal_event = true`. | `day_number`, `address_id`, `activity_label`, `lighting_time`, `event_start_time`, `hospitality_details` |
+| `blockAdventDay(formData)` | Bloque une date sans animation (fête scolaire, culte, férié). Crée l'entrée avec `status = 'blocked'`, empêchant toute sélection par les habitants. | `day_number`, `block_reason` |
+| `freeAdventDay(formData)` | Libère ou débloque une date communale pour la rendre à nouveau disponible pour les inscriptions d'habitants. | `day_number` |
 
 ---
 
@@ -95,3 +99,17 @@ Les Server Actions sont localisées dans `src/app/actions/`. Elles s'exécutent 
   }
   ```
 - **Événements supportés** : `page_view`, `address_view`, `route_view`.
+
+### 4. Export CSV / Excel du Calendrier de l'Avent (`/api/admin/export-advent`)
+- **Méthode** : `GET`
+- **Sécurité** : Réservé aux administrateurs et modérateurs (`role: 'admin' | 'moderator'`).
+- **Description** : Génère un fichier CSV encodé en UTF-8 avec BOM (`\uFEFF`) et séparateur `;` directement lisible par Microsoft Excel sur macOS et Windows, contenant toutes les fenêtres, contacts, formules et horaires pour le greffe communal ou les secours.
+- **Paramètres de requête** : `?year=2026` (optionnel, par défaut l'année en cours).
+
+### 5. Météo Communale en Direct (`/api/weather`)
+- **Méthode** : `GET`
+- **Description** : Fournit la météo en direct pour Vufflens-la-Ville (Open-Meteo, sans clé API), mise en cache 15 minutes, avec température, code WMO et conseil adapté à la promenade du soir.
+
+### 6. Flux Temps Réel Server-Sent Events (`/api/events/live`)
+- **Méthode** : `GET` (stream `text/event-stream`)
+- **Description** : Diffuse en temps réel les changements d'état (ex: bascule « Plus de bonbons ») et les alertes communales instantanées envoyées par les autorités.

@@ -8,6 +8,9 @@ import {
   setSeason,
   setAdventPublication,
   assignAdventDay,
+  reserveCommunalAdventDay,
+  blockAdventDay,
+  freeAdventDay,
   regenerateVillageCode,
   updateMapSettings,
   sendAdventRemindersAction,
@@ -21,6 +24,7 @@ interface VillageStateRow {
   current_season: SeasonMode;
   advent_hide_future_details: boolean;
   advent_registration_opens_at: string;
+  advent_cancellation_deadline?: string | null;
   advent_is_published: boolean;
   map_center_lng: number;
   map_center_lat: number;
@@ -35,16 +39,19 @@ interface AdventCandidateRow {
   id: string;
   requested_day: number | null;
   day_number: number | null;
-  status: "submitted" | "assigned" | "rejected";
+  status: "submitted" | "assigned" | "rejected" | "reserved_commune" | "blocked";
+  is_communal_event: boolean;
+  block_reason: string | null;
   participation_type: "window_only" | "hospitality";
   activity_label: string | null;
-  lighting_time: string;
+  lighting_time: string | null;
   event_start_time: string | null;
   hospitality_details: string | null;
-  email: string;
-  full_name: string;
-  street_name: string;
-  house_number: string;
+  email: string | null;
+  full_name: string | null;
+  address_id: string | null;
+  street_name: string | null;
+  house_number: string | null;
 }
 
 export default async function AdminPage({
@@ -66,7 +73,7 @@ export default async function AdminPage({
   );
   const state = stateRows[0];
 
-  const { pending, verified, adventCandidates, analytics } = await withRlsContext(me.id, async (client) => {
+  const { pending, verified, adventCandidates, addresses, analytics } = await withRlsContext(me.id, async (client) => {
     const p = await client.query<{
       id: string;
       email: string;
@@ -99,6 +106,8 @@ export default async function AdminPage({
               ac.requested_day,
               ac.day_number,
               ac.status,
+              ac.is_communal_event,
+              ac.block_reason,
               ac.participation_type,
               ac.activity_label,
               ac.lighting_time::TEXT,
@@ -106,13 +115,24 @@ export default async function AdminPage({
               ac.hospitality_details,
               pr.email,
               pr.full_name,
+              a.id AS address_id,
               a.street_name,
               a.house_number
        FROM public.advent_calendar ac
-       JOIN public.profiles pr ON pr.id = ac.user_id
-       JOIN public.addresses a ON a.id = ac.address_id
+       LEFT JOIN public.profiles pr ON pr.id = ac.user_id
+       LEFT JOIN public.addresses a ON a.id = ac.address_id
        WHERE ac.season_year = EXTRACT(YEAR FROM CURRENT_DATE)
        ORDER BY COALESCE(ac.day_number, ac.requested_day, 99) ASC`
+    );
+
+    const addrRes = await client.query<{
+      id: string;
+      street_name: string;
+      house_number: string;
+    }>(
+      `SELECT id, street_name, house_number
+       FROM public.addresses
+       ORDER BY street_name, house_number`
     );
 
     const statsRes = await client.query<{
@@ -180,16 +200,28 @@ export default async function AdminPage({
       pending: p.rows,
       verified: v.rows,
       adventCandidates: ac.rows,
+      addresses: addrRes.rows,
       analytics,
     };
   });
 
-  const assignedDays = new Map<number, AdventCandidateRow>();
+  const occupiedDays = new Map<number, AdventCandidateRow>();
   for (const c of adventCandidates) {
-    if (c.status === "assigned" && c.day_number) {
-      assignedDays.set(c.day_number, c);
+    if (
+      c.day_number &&
+      (c.status === "assigned" || c.status === "reserved_commune" || c.status === "blocked")
+    ) {
+      occupiedDays.set(c.day_number, c);
     }
   }
+
+  const communalSlots = adventCandidates.filter(
+    (c) => c.is_communal_event || c.status === "reserved_commune" || c.status === "blocked"
+  );
+
+  const residentCandidates = adventCandidates.filter(
+    (c) => !c.is_communal_event && c.status !== "reserved_commune" && c.status !== "blocked"
+  );
 
   const { newcode, map_saved, map_error, reminded } = await searchParams;
 
@@ -229,6 +261,21 @@ export default async function AdminPage({
   async function assignAction(fd: FormData) {
     "use server";
     await assignAdventDay(fd);
+  }
+  async function reserveCommunalAction(fd: FormData) {
+    "use server";
+    await reserveCommunalAdventDay(fd);
+    redirect("/admin");
+  }
+  async function blockAdventAction(fd: FormData) {
+    "use server";
+    await blockAdventDay(fd);
+    redirect("/admin");
+  }
+  async function freeAdventAction(fd: FormData) {
+    "use server";
+    await freeAdventDay(fd);
+    redirect("/admin");
   }
   async function reminderAction(fd: FormData) {
     "use server";
@@ -580,31 +627,49 @@ export default async function AdminPage({
               </span>
             </div>
 
-            <form action={seasonAction} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-              <label className="block text-xs font-medium text-stone-700">
-                Mode affiché sur le site
-                <select
-                  name="season"
-                  defaultValue={state?.current_season}
-                  className="mt-1.5 w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900"
-                >
-                  <option value="halloween">Mode Halloween (Octobre)</option>
-                  <option value="advent">Mode Noël / Calendrier de l&apos;Avent (Décembre)</option>
-                  <option value="off_season">Hors-saison</option>
-                </select>
-              </label>
+            <form action={seasonAction} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <label className="block text-xs font-medium text-stone-700">
+                  Mode affiché sur le site
+                  <select
+                    name="season"
+                    defaultValue={state?.current_season}
+                    className="mt-1.5 w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900"
+                  >
+                    <option value="halloween">Mode Halloween (Octobre)</option>
+                    <option value="advent">Mode Noël / Calendrier de l&apos;Avent (Décembre)</option>
+                    <option value="off_season">Hors-saison</option>
+                  </select>
+                </label>
 
-              <label className="block text-xs font-medium text-stone-700">
-                Ouverture des inscriptions Noël dès le
-                <input
-                  type="date"
-                  name="advent_registration_opens_at"
-                  defaultValue={state?.advent_registration_opens_at ?? "2026-11-01"}
-                  className="mt-1.5 w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900"
-                />
-              </label>
+                <label className="block text-xs font-medium text-stone-700">
+                  Ouverture des propositions dès le
+                  <input
+                    type="date"
+                    name="advent_registration_opens_at"
+                    defaultValue={state?.advent_registration_opens_at ?? "2026-11-01"}
+                    className="mt-1.5 w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900"
+                  />
+                  <span className="block text-[11px] text-stone-500 mt-1">
+                    Date à partir de laquelle les résidents peuvent soumettre leur souhait.
+                  </span>
+                </label>
 
-              <div className="space-y-2">
+                <label className="block text-xs font-medium text-stone-700">
+                  Date limite de désinscription
+                  <input
+                    type="date"
+                    name="advent_cancellation_deadline"
+                    defaultValue={state?.advent_cancellation_deadline ?? ""}
+                    className="mt-1.5 w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900"
+                  />
+                  <span className="block text-[11px] text-stone-500 mt-1">
+                    Après cette date, les habitants ne peuvent plus se désinscrire eux-mêmes.
+                  </span>
+                </label>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-stone-200">
                 <label className="flex items-center gap-2 text-xs text-stone-700">
                   <input
                     type="checkbox"
@@ -614,8 +679,9 @@ export default async function AdminPage({
                   />
                   <span>Masquer le texte d&apos;accueil avant le jour J</span>
                 </label>
-                <Button type="submit" className="w-full">
-                  Enregistrer le mode
+
+                <Button type="submit" size="sm">
+                  Enregistrer les paramètres de saison
                 </Button>
               </div>
             </form>
@@ -634,6 +700,15 @@ export default async function AdminPage({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href="/api/admin/export-advent"
+                  download
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-800 hover:bg-stone-50 shadow-2xs transition"
+                >
+                  <span>📊</span>
+                  <span>Export Excel / CSV</span>
+                </a>
+
                 <Link
                   href="/admin/print-advent"
                   className="inline-flex h-8 items-center rounded-md border border-stone-300 bg-stone-50 px-3 text-xs font-semibold text-stone-800 hover:bg-stone-100"
@@ -671,108 +746,355 @@ export default async function AdminPage({
 
             {/* Aperçu des 24 jours de décembre */}
             <div>
-              <div className="text-xs font-semibold text-stone-600 mb-2">
-                Récapitulatif des 24 dates ({assignedDays.size} / 24 attribuées)
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-stone-700 mb-2">
+                <span>
+                  Récapitulatif des 24 dates ({occupiedDays.size} / 24 occupées)
+                </span>
+                <span className="font-mono-tabular text-[11px] text-stone-500 font-normal">
+                  {residentCandidates.filter((r) => r.status === "assigned").length} habitant(s) ·{" "}
+                  {communalSlots.filter((c) => c.status === "reserved_commune").length} commune ·{" "}
+                  {communalSlots.filter((c) => c.status === "blocked").length} bloqué(s)
+                </span>
               </div>
               <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-12 gap-1.5">
                 {Array.from({ length: 24 }, (_, i) => i + 1).map((day) => {
-                  const assigned = assignedDays.get(day);
+                  const item = occupiedDays.get(day);
+                  const isResident = item && item.status === "assigned";
+                  const isCommunal =
+                    item &&
+                    (item.status === "reserved_commune" ||
+                      (item.is_communal_event && item.status !== "blocked"));
+                  const isBlocked = item && item.status === "blocked";
+
+                  let tooltip = `${day} déc. : libre`;
+                  let styleClass = "border-stone-200 bg-stone-50 text-stone-400";
+
+                  if (isResident) {
+                    tooltip = `${day} déc. : ${item.street_name} ${item.house_number} (${item.full_name || item.email})`;
+                    styleClass = "border-[#1b4d3e] bg-[#1b4d3e] text-white font-semibold";
+                  } else if (isCommunal) {
+                    tooltip = `${day} déc. : Réservé Commune — ${item.activity_label || "Événement communal"}${item.street_name ? ` (${item.street_name} ${item.house_number})` : ""}`;
+                    styleClass = "border-purple-700 bg-purple-700 text-white font-semibold";
+                  } else if (isBlocked) {
+                    tooltip = `${day} déc. : Bloqué par la commune (${item.block_reason || "Non disponible"})`;
+                    styleClass = "border-stone-600 bg-stone-700 text-stone-200 font-semibold";
+                  }
+
                   return (
                     <div
                       key={day}
-                      title={
-                        assigned
-                          ? `${day} déc. : ${assigned.street_name} ${assigned.house_number} (${assigned.full_name})`
-                          : `${day} déc. : libre`
-                      }
-                      className={`rounded border px-2 py-1.5 text-center tabular-nums text-xs ${
-                        assigned
-                          ? "border-[#1b4d3e] bg-[#1b4d3e] text-white font-semibold"
-                          : "border-stone-200 bg-stone-50 text-stone-400"
-                      }`}
+                      title={tooltip}
+                      className={`rounded border px-2 py-1.5 text-center tabular-nums text-xs transition ${styleClass}`}
                     >
-                      {day}
+                      <span>{day}</span>
+                      {isCommunal && <span className="block text-[8px] font-normal opacity-90">Com.</span>}
+                      {isBlocked && <span className="block text-[8px] font-normal opacity-90">Bloq.</span>}
                     </div>
                   );
                 })}
               </div>
+
+              {/* Légende */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-3 text-[11px] text-stone-600">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#1b4d3e] inline-block" />
+                  <span>Attribué habitant</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-purple-700 inline-block" />
+                  <span>Pré-réservé Commune</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-stone-700 inline-block" />
+                  <span>Bloqué (férié / école)</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full border border-stone-300 bg-stone-50 inline-block" />
+                  <span>Libre</span>
+                </div>
+              </div>
             </div>
 
-            {/* Liste des candidatures d'habitants pour le Calendrier de l'Avent */}
-            <div className="divide-y divide-stone-200 border border-stone-200 rounded-md">
-              {adventCandidates.length === 0 ? (
-                <p className="p-4 text-xs text-stone-500">
-                  Aucune candidature enregistrée pour le moment.
+            {/* Gestion des dates communales & blocages */}
+            <div className="rounded-lg border border-purple-200 bg-purple-50/40 p-4 space-y-4">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-purple-900">
+                  Créneaux communaux &amp; Blocage de dates
+                </h3>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  Pré-réservez une date pour un événement officiel de la commune (inauguration, Saint-Nicolas, clôture) ou bloquez des jours sans animation (fête de l&apos;école, cultes, etc.).
                 </p>
-              ) : (
-                adventCandidates.map((c) => (
-                  <form
-                    key={c.id}
-                    action={assignAction}
-                    className="flex flex-wrap items-center justify-between gap-3 p-3.5 text-xs"
-                  >
-                    <input type="hidden" name="registration_id" value={c.id} />
-                    <div className="space-y-0.5 min-w-[220px] flex-1">
-                      <div className="font-semibold text-stone-900">
-                        {c.street_name} {c.house_number}{" "}
-                        <span className="font-normal text-stone-500">({c.full_name || c.email})</span>
-                      </div>
-                      <div className="text-stone-600">
-                        Souhait :{" "}
-                        <strong>
-                          {c.requested_day ? `${c.requested_day} décembre` : "Flexible"}
-                        </strong>{" "}
-                        ·{" "}
-                        <span className="font-medium text-stone-800">
-                          {c.activity_label ||
-                            (c.participation_type === "hospitality"
-                              ? "Accueil & verrée"
-                              : "Fenêtre illuminée")}
-                        </span>{" "}
-                        ({c.event_start_time ? `dès ${c.event_start_time.slice(0, 5)}` : `illumination ${c.lighting_time?.slice(0, 5)}`})
-                      </div>
-                      {c.hospitality_details && (
-                        <div className="text-stone-500 italic">{c.hospitality_details}</div>
-                      )}
-                    </div>
+              </div>
 
-                    <div className="flex items-center gap-2">
-                      <select
-                        name="day_number"
-                        defaultValue={c.day_number ?? c.requested_day ?? ""}
-                        className="rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-xs text-stone-900 tabular-nums"
-                      >
-                        <option value="">Choisir le jour…</option>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Formulaire A : Pré-réserver pour la commune */}
+                <form action={reserveCommunalAction} className="rounded-md border border-purple-200 bg-white p-3.5 space-y-3 text-xs shadow-xs">
+                  <div className="font-semibold text-purple-950 flex items-center gap-1.5">
+                    <span>🏛️</span> Pré-réserver une date pour la Commune
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <label className="block text-stone-700">
+                      Jour de décembre
+                      <select name="day_number" required className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1.5 text-xs text-stone-900">
+                        <option value="">Choisir (1 à 24)…</option>
                         {Array.from({ length: 24 }, (_, i) => i + 1).map((d) => {
-                          const holder = assignedDays.get(d);
-                          const isOther = holder && holder.id !== c.id;
+                          const occ = occupiedDays.get(d);
                           return (
                             <option key={d} value={d}>
-                              {d} décembre {isOther ? `(attribué à ${holder.street_name} ${holder.house_number})` : ""}
+                              {d} décembre {occ ? `(${occ.status === "reserved_commune" ? "Déjà commune" : occ.status === "blocked" ? "Bloqué" : "Attribué"})` : "— Libre"}
                             </option>
                           );
                         })}
                       </select>
+                    </label>
 
-                      <Button type="submit" name="action_type" value="assign" size="sm">
-                        {c.status === "assigned" ? "Modifier le jour" : "Attribuer ce jour"}
-                      </Button>
+                    <label className="block text-stone-700">
+                      Lieu / Adresse
+                      <select name="address_id" required className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1.5 text-xs text-stone-900">
+                        <option value="">Sélectionner un lieu…</option>
+                        {addresses.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.street_name} {a.house_number}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
 
-                      {c.status === "assigned" && (
-                        <Button
-                          type="submit"
-                          name="action_type"
-                          value="unassign"
-                          variant="outline"
-                          size="sm"
-                        >
-                          Retirer
-                        </Button>
-                      )}
+                  <label className="block text-stone-700">
+                    Intitulé de l&apos;événement
+                    <input
+                      type="text"
+                      name="activity_label"
+                      required
+                      placeholder="Ex: Inauguration du Calendrier & Apéritif municipal"
+                      className="mt-1 w-full rounded border border-stone-300 bg-white px-2.5 py-1.5 text-xs text-stone-900"
+                    />
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <label className="block text-stone-700">
+                      Illumination (dès)
+                      <input
+                        type="time"
+                        name="lighting_time"
+                        defaultValue="18:00"
+                        className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1.5 text-xs text-stone-900"
+                      />
+                    </label>
+
+                    <label className="block text-stone-700">
+                      Verrée / Accueil (dès)
+                      <input
+                        type="time"
+                        name="event_start_time"
+                        defaultValue="18:30"
+                        className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1.5 text-xs text-stone-900"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="block text-stone-700">
+                    Détails ou message aux habitants (optionnel)
+                    <input
+                      type="text"
+                      name="hospitality_details"
+                      placeholder="Ex: Vin chaud et jus de pomme offerts par la Municipalité"
+                      className="mt-1 w-full rounded border border-stone-300 bg-white px-2.5 py-1.5 text-xs text-stone-900"
+                    />
+                  </label>
+
+                  <Button type="submit" size="sm" className="w-full bg-purple-700 hover:bg-purple-800 text-white">
+                    Enregistrer la date communale
+                  </Button>
+                </form>
+
+                {/* Formulaire B : Bloquer une date */}
+                <form action={blockAdventAction} className="rounded-md border border-stone-300 bg-white p-3.5 space-y-3 text-xs shadow-xs flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="font-semibold text-stone-900 flex items-center gap-1.5">
+                      <span>🔒</span> Bloquer une date sans animation
                     </div>
-                  </form>
-                ))
+
+                    <label className="block text-stone-700">
+                      Jour de décembre à bloquer
+                      <select name="day_number" required className="mt-1 w-full rounded border border-stone-300 bg-white px-2 py-1.5 text-xs text-stone-900">
+                        <option value="">Choisir (1 à 24)…</option>
+                        {Array.from({ length: 24 }, (_, i) => i + 1).map((d) => {
+                          const occ = occupiedDays.get(d);
+                          return (
+                            <option key={d} value={d}>
+                              {d} décembre {occ ? `(${occ.status === "blocked" ? "Déjà bloqué" : "Occupé"})` : "— Libre"}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+
+                    <label className="block text-stone-700">
+                      Motif du blocage
+                      <input
+                        type="text"
+                        name="block_reason"
+                        required
+                        placeholder="Ex: Fête de Noël de l'école primaire / Paroisse / Férié"
+                        className="mt-1 w-full rounded border border-stone-300 bg-white px-2.5 py-1.5 text-xs text-stone-900"
+                      />
+                    </label>
+                    <p className="text-[11px] text-stone-500">
+                      Les dates bloquées n&apos;apparaissent pas sur la carte publique et ne peuvent pas être sélectionnées par les habitants.
+                    </p>
+                  </div>
+
+                  <Button type="submit" variant="outline" size="sm" className="w-full border-stone-400 text-stone-800 hover:bg-stone-100">
+                    Bloquer ce jour
+                  </Button>
+                </form>
+              </div>
+
+              {/* Liste des créneaux communaux ou bloqués actifs avec action de libération */}
+              {communalSlots.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-purple-200">
+                  <div className="text-xs font-semibold text-purple-950">
+                    Dates actuellement gérées par la Commune ({communalSlots.length}) :
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {communalSlots.map((slot) => (
+                      <div
+                        key={slot.id}
+                        className="flex items-center justify-between gap-2 rounded-md border border-stone-200 bg-white p-2.5 text-xs"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 font-semibold text-stone-900">
+                            <span className="font-mono-tabular text-sm font-bold text-stone-800">
+                              {slot.day_number} déc.
+                            </span>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                slot.status === "blocked"
+                                  ? "bg-stone-200 text-stone-800"
+                                  : "bg-purple-100 text-purple-900"
+                              }`}
+                            >
+                              {slot.status === "blocked" ? "Bloqué" : "Commune"}
+                            </span>
+                          </div>
+                          <div className="truncate text-stone-600 mt-0.5">
+                            {slot.status === "blocked"
+                              ? slot.block_reason || "Date bloquée"
+                              : `${slot.activity_label || "Événement"} ${slot.street_name ? `(${slot.street_name} ${slot.house_number})` : ""}`}
+                          </div>
+                        </div>
+
+                        <form action={freeAdventAction}>
+                          <input type="hidden" name="day_number" value={slot.day_number ?? ""} />
+                          <Button
+                            type="submit"
+                            variant="outline"
+                            size="sm"
+                            className="text-red-700 hover:bg-red-50 hover:text-red-800 text-[11px] h-7 px-2"
+                          >
+                            Libérer
+                          </Button>
+                        </form>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
+            </div>
+
+            {/* Liste des candidatures d'habitants pour le Calendrier de l'Avent */}
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-stone-700">
+                Candidatures des habitants ({residentCandidates.length})
+              </div>
+              <div className="divide-y divide-stone-200 border border-stone-200 rounded-md">
+                {residentCandidates.length === 0 ? (
+                  <p className="p-4 text-xs text-stone-500">
+                    Aucune candidature d&apos;habitant enregistrée pour le moment.
+                  </p>
+                ) : (
+                  residentCandidates.map((c) => (
+                    <form
+                      key={c.id}
+                      action={assignAction}
+                      className="flex flex-wrap items-center justify-between gap-3 p-3.5 text-xs"
+                    >
+                      <input type="hidden" name="registration_id" value={c.id} />
+                      <div className="space-y-0.5 min-w-[220px] flex-1">
+                        <div className="font-semibold text-stone-900">
+                          {c.street_name} {c.house_number}{" "}
+                          <span className="font-normal text-stone-500">({c.full_name || c.email})</span>
+                        </div>
+                        <div className="text-stone-600">
+                          Souhait :{" "}
+                          <strong>
+                            {c.requested_day ? `${c.requested_day} décembre` : "Flexible"}
+                          </strong>{" "}
+                          ·{" "}
+                          <span className="font-medium text-stone-800">
+                            {c.activity_label ||
+                              (c.participation_type === "hospitality"
+                                ? "Accueil & verrée"
+                                : "Fenêtre illuminée")}
+                          </span>{" "}
+                          ({c.event_start_time ? `dès ${c.event_start_time.slice(0, 5)}` : `illumination ${c.lighting_time?.slice(0, 5)}`})
+                        </div>
+                        {c.hospitality_details && (
+                          <div className="text-stone-500 italic">{c.hospitality_details}</div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <select
+                          name="day_number"
+                          defaultValue={c.day_number ?? c.requested_day ?? ""}
+                          className="rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-xs text-stone-900 tabular-nums"
+                        >
+                          <option value="">Choisir le jour…</option>
+                          {Array.from({ length: 24 }, (_, i) => i + 1).map((d) => {
+                            const occ = occupiedDays.get(d);
+                            const isOther = occ && occ.id !== c.id;
+                            let labelSuffix = "";
+                            if (isOther) {
+                              if (occ.status === "reserved_commune") {
+                                labelSuffix = `(réservé Commune)`;
+                              } else if (occ.status === "blocked") {
+                                labelSuffix = `(bloqué)`;
+                              } else {
+                                labelSuffix = `(attribué à ${occ.street_name} ${occ.house_number})`;
+                              }
+                            }
+                            return (
+                              <option key={d} value={d}>
+                                {d} décembre {labelSuffix}
+                              </option>
+                            );
+                          })}
+                        </select>
+
+                        <Button type="submit" name="action_type" value="assign" size="sm">
+                          {c.status === "assigned" ? "Modifier le jour" : "Attribuer ce jour"}
+                        </Button>
+
+                        {c.status === "assigned" && (
+                          <Button
+                            type="submit"
+                            name="action_type"
+                            value="unassign"
+                            variant="outline"
+                            size="sm"
+                          >
+                            Retirer
+                          </Button>
+                        )}
+                      </div>
+                    </form>
+                  ))
+                )}
+              </div>
             </div>
 
             {/* Rappel Email J-1 aux hôtes */}

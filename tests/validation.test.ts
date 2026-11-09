@@ -1,6 +1,11 @@
 import test, { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { HalloweenSchema, AdventApplicationSchema } from "../src/lib/schemas";
+import {
+  HalloweenSchema,
+  AdventApplicationSchema,
+  CommunalAdventReservationSchema,
+  CommunalAdventBlockSchema,
+} from "../src/lib/schemas";
 
 describe("Validation des Schémas de Formulaires (Zod)", () => {
   describe("HalloweenSchema", () => {
@@ -175,6 +180,126 @@ describe("Validation des Schémas de Formulaires (Zod)", () => {
         lighting_time: "17:30",
       });
       assert.equal(res.success, false);
+    });
+  });
+
+  describe("CommunalAdventReservationSchema", () => {
+    const validUuid = "11111111-2222-3333-4444-555555555555";
+
+    it("valide une pré-réservation communale officielle (ex: 1er déc. Maison de Commune)", () => {
+      const res = CommunalAdventReservationSchema.safeParse({
+        day_number: 1,
+        address_id: validUuid,
+        activity_label: "Inauguration officielle du Calendrier & Apéritif municipal",
+        lighting_time: "18:00",
+        event_start_time: "18:30",
+        hospitality_details: "Vin chaud et jus de pomme offerts par la Municipalité",
+      });
+      assert.equal(res.success, true);
+      if (res.success) {
+        assert.equal(res.data.day_number, 1);
+        assert.equal(res.data.lighting_time, "18:00");
+      }
+    });
+
+    it("rejette un jour communal invalide ou hors plage (0 ou 25)", () => {
+      assert.equal(
+        CommunalAdventReservationSchema.safeParse({
+          day_number: 0,
+          address_id: validUuid,
+          activity_label: "Inauguration",
+        }).success,
+        false
+      );
+      assert.equal(
+        CommunalAdventReservationSchema.safeParse({
+          day_number: 25,
+          address_id: validUuid,
+          activity_label: "Inauguration",
+        }).success,
+        false
+      );
+    });
+
+    it("rejette une adresse UUID malformée", () => {
+      const res = CommunalAdventReservationSchema.safeParse({
+        day_number: 6,
+        address_id: "not-a-valid-uuid",
+        activity_label: "Visite de Saint-Nicolas",
+      });
+      assert.equal(res.success, false);
+    });
+  });
+
+  describe("CommunalAdventBlockSchema", () => {
+    it("valide un blocage de date communal avec un motif explicite", () => {
+      const res = CommunalAdventBlockSchema.safeParse({
+        day_number: 18,
+        block_reason: "Fête de Noël de l'école primaire",
+      });
+      assert.equal(res.success, true);
+      if (res.success) {
+        assert.equal(res.data.day_number, 18);
+        assert.equal(res.data.block_reason, "Fête de Noël de l'école primaire");
+      }
+    });
+
+    it("rejette un motif de blocage vide ou trop court", () => {
+      assert.equal(
+        CommunalAdventBlockSchema.safeParse({
+          day_number: 10,
+          block_reason: "  ",
+        }).success,
+        false
+      );
+    });
+  });
+
+  describe("Advent Cancellation Deadline Logic", () => {
+    it("détermine avec exactitude si la date limite communale de désinscription est échue", () => {
+      const isDeadlinePassed = (deadline: string | null, currentDate: string): boolean => {
+        if (!deadline) return false;
+        return currentDate > deadline;
+      };
+
+      // Avant la date limite : désinscription permise
+      assert.equal(isDeadlinePassed("2026-11-20", "2026-11-10"), false);
+      assert.equal(isDeadlinePassed("2026-11-20", "2026-11-20"), false);
+
+      // Passée la date limite : désinscription verrouillée par la commune
+      assert.equal(isDeadlinePassed("2026-11-20", "2026-11-21"), true);
+      assert.equal(isDeadlinePassed("2026-11-20", "2026-12-01"), true);
+
+      // Sans date limite configurée : désinscription toujours permise
+      assert.equal(isDeadlinePassed(null, "2026-12-01"), false);
+    });
+  });
+
+  describe("Halloween Quick Action Banner Visibility", () => {
+    const isCandyBannerActive = (
+      season: string,
+      day: number,
+      month: number // 0-indexed: 9 = Oct, 11 = Dec
+    ): boolean => {
+      if (season !== "halloween") return false;
+      return day === 31 && (month === 9 || month === 11);
+    };
+
+    it("s'affiche uniquement si la carte est en mode halloween ET le 31 (octobre ou décembre)", () => {
+      // En mode halloween le 31 octobre : actif
+      assert.equal(isCandyBannerActive("halloween", 31, 9), true);
+      // En mode halloween le 31 décembre : actif
+      assert.equal(isCandyBannerActive("halloween", 31, 11), true);
+
+      // En mode halloween un jour ordinaire (ex: 9 novembre, 15 octobre) : masqué
+      assert.equal(isCandyBannerActive("halloween", 9, 10), false);
+      assert.equal(isCandyBannerActive("halloween", 15, 9), false);
+      assert.equal(isCandyBannerActive("halloween", 30, 9), false);
+
+      // Si la carte n'est pas en mode halloween (advent ou off_season) : toujours masqué
+      assert.equal(isCandyBannerActive("advent", 31, 9), false);
+      assert.equal(isCandyBannerActive("advent", 31, 11), false);
+      assert.equal(isCandyBannerActive("off_season", 31, 9), false);
     });
   });
 });

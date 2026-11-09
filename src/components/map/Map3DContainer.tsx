@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import FloatingMarker from "@/components/map/FloatingMarker";
 import AtmosphericParticles from "@/components/map/AtmosphericParticles";
+import WeatherBadge from "@/components/map/WeatherBadge";
 import MobileDrawer, {
   computeDistanceMeters,
   type DrawerSnap,
@@ -251,6 +252,20 @@ export default function Map3DContainer({
   };
 
   const theme = SEASON_THEMES[activeLayer];
+
+  // Calcul du jour de l'Avent d'aujourd'hui (1 à 24)
+  const todayAdventDay = useMemo(() => {
+    const now = new Date();
+    if (now.getMonth() === 11) {
+      return Math.min(Math.max(now.getDate(), 1), 24);
+    }
+    return 1;
+  }, []);
+
+  const tonightEvent = useMemo(() => {
+    if (activeLayer !== "advent") return null;
+    return events.find((e) => e.day_number === todayAdventDay) ?? null;
+  }, [activeLayer, events, todayAdventDay]);
 
   // Enregistrement Service Worker PWA + Cache hors-ligne des adresses
   useEffect(() => {
@@ -480,6 +495,20 @@ export default function Map3DContainer({
       }
     }
   }, []);
+
+  const handleFlyToTonight = useCallback(() => {
+    if (!tonightEvent || !mapRef.current) return;
+    triggerHaptic(14);
+    mapRef.current.flyTo({
+      center: [Number(tonightEvent.lng), Number(tonightEvent.lat)],
+      zoom: 17.5,
+      pitch: 58,
+      duration: 1100,
+      essential: true,
+    });
+    handleSelectEvent(tonightEvent);
+    setDrawerSnap("card");
+  }, [tonightEvent, handleSelectEvent]);
 
   // Visite guidée automatique en hélicoptère 3D
   const toggleTour = useCallback(() => {
@@ -971,7 +1000,17 @@ export default function Map3DContainer({
       </AnimatePresence>
 
       {/* 🍬 Bouton d'action rapide d'Halloween pour l'habitant connecté (1 clic direct sur la carte) */}
-      {activeLayer === "halloween" && myCandyState?.isRegistered && myCandyState?.isDistributing && (
+      {/* Actif UNIQUEMENT si le mode actif est Halloween ET le jour du 31 (31 octobre ou 31 décembre) */}
+      {initialSeason === "halloween" &&
+        activeLayer === "halloween" &&
+        myCandyState?.isRegistered &&
+        myCandyState?.isDistributing &&
+        (() => {
+          const now = new Date();
+          const day = now.getDate();
+          const month = now.getMonth();
+          return day === 31 && (month === 9 || month === 11);
+        })() && (
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1041,19 +1080,39 @@ export default function Map3DContainer({
         )}
       </AnimatePresence>
 
-      {/* Badge statut Live en haut à droite */}
-      {isLiveConnected && (
-        <div
-          className="hidden sm:flex items-center gap-1.5 fixed top-4 right-4 z-20 rounded-full border border-stone-200/60 bg-white/80 dark:bg-stone-900/80 backdrop-blur-md px-2.5 py-1 text-[11px] font-medium text-stone-600 dark:text-stone-300 shadow-sm"
-          title="Carte connectée en direct aux mises à jour du village"
-        >
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-          </span>
-          <span>En direct</span>
-        </div>
-      )}
+      {/* Barre d'état supérieure droite : Météo, Bouton "Fenêtre de ce soir" et Statut Live */}
+      <div className="fixed top-4 right-4 z-20 flex items-center gap-2 pointer-events-auto">
+        {/* Météo locale en direct Open-Meteo */}
+        <WeatherBadge />
+
+        {/* 🌟 Bouton Fenêtre de ce soir en mode Avent */}
+        {activeLayer === "advent" && adventPublished && tonightEvent && (
+          <button
+            type="button"
+            onClick={handleFlyToTonight}
+            className="flex items-center gap-1.5 rounded-full border border-amber-400/80 bg-amber-500/90 hover:bg-amber-400 text-stone-950 font-bold px-3 py-1 text-xs shadow-md transition active:scale-95 cursor-pointer backdrop-blur-md"
+            title={`Voir la fenêtre de ce soir : ${tonightEvent.street_name} ${tonightEvent.house_number}`}
+          >
+            <Sparkles className="w-3.5 h-3.5 fill-stone-950" />
+            <span className="hidden sm:inline">Fenêtre de ce soir ({todayAdventDay} déc.)</span>
+            <span className="sm:hidden">Ce soir ({todayAdventDay} déc.)</span>
+          </button>
+        )}
+
+        {/* Badge statut Live SSE */}
+        {isLiveConnected && (
+          <div
+            className="hidden sm:flex items-center gap-1.5 rounded-full border border-stone-200/60 bg-white/80 dark:bg-stone-900/80 backdrop-blur-md px-2.5 py-1 text-[11px] font-medium text-stone-600 dark:text-stone-300 shadow-sm"
+            title="Carte connectée en direct aux mises à jour du village"
+          >
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+            </span>
+            <span>En direct</span>
+          </div>
+        )}
+      </div>
 
       {/* Particules atmosphériques magiques (braises pour Halloween, neige pour l'Avent) */}
       <AtmosphericParticles season={activeLayer} enabled={magicAtmosphere} />
